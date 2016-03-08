@@ -3,6 +3,7 @@
 ##### Hall_Rating.R
 
 This file:
+
 1. Cleans raw BBRef data dump
 2. Estimates historic BPM from WS/48 and MPG
 3. Develops Estimated Aging Curves
