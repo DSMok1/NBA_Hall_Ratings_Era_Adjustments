@@ -53,7 +53,9 @@ Data_Extract <- Stats_Dump[,c("player_id","year_id","team_id","lg_id","mp","g","
   .[.$Injury==FALSE,]
 
 plot(Data_Extract$mpg,Data_Extract$bpm)  # See how mpg and bpm interact
+plot(Data_Extract$bpm,Data_Extract$mpg)  # See how mpg and bpm interact
 
+plot(Data_Extract$ws_per_48,Data_Extract$bpm)  # See how ws/48 and bpm interact
 
 # Projected_BPM_Reg <- lm(bpm ~ ws_per_48 + mpg, data=Data_Extract )
 
@@ -63,7 +65,7 @@ plot(Data_Extract$mpg,Data_Extract$bpm)  # See how mpg and bpm interact
 
 library(MASS)
 
-Robust_BPM_Reg <- rlm(bpm ~ ws_per_48 + mpg2, data=Data_Extract)
+Robust_BPM_Reg <- rlm(bpm ~ ws_per_48, data=Data_Extract)
 summary(Robust_BPM_Reg)
 # coef(Robust_BPM_Reg)
 # plot(Robust_BPM_Reg)
@@ -123,8 +125,8 @@ Stats_Dump <- merge(Stats_Dump,Playoff_Team_Data,by = c("year_id","lg_id","team_
 Stats_Dump$Raw_Implied_BPM <- predict(Robust_BPM_Reg,newdata = Stats_Dump)
 Stats_Dump$Implied_BPM <- Stats_Dump$Raw_Implied_BPM + ifelse(Stats_Dump$Playoffs == TRUE,Stats_Dump$sos,0)  
 
-Stats_Dump$Equiv_BPM <- ifelse(is.na(Stats_Dump$bpm),Stats_Dump$Implied_BPM, ((Stats_Dump$bpm + Stats_Dump$Implied_BPM)/2))
-
+#Stats_Dump$Equiv_BPM <- ifelse(is.na(Stats_Dump$bpm),Stats_Dump$Implied_BPM, ((Stats_Dump$bpm + Stats_Dump$Implied_BPM)/2))
+Stats_Dump$Equiv_BPM <- Stats_Dump$Implied_BPM  # Just use WS/48
 
 ### Team Adjustments to Equivalent BPM ####
 
@@ -157,6 +159,7 @@ Aging_Data <-
   Stats_Dump[,c("player","player_id","age","year_id","team_id","lg_id","mp","g","bpm","Implied_BPM","Equiv_BPM","Playoffs","Injury")] %>%
   .[.$mp>150,] %>%
   .[.$year_id>1999,] %>%
+  .[.$year_id<2016,] %>%
   .[.$Playoffs == FALSE,] %>%
   .[!is.na(.$Equiv_BPM),] %>%
   .[.$Injury==FALSE,]
@@ -205,9 +208,26 @@ Aging <- summarise(Age_Group,
                    )
 plot(Aging$age,Aging$delta_bpm)
 
+
 Aging_Pairs <- merge(Aging_Pairs,Aging[,c("age","players")],by = c("age"))
 Aging_Pairs <- Aging_Pairs[Aging_Pairs$players > 50,]
 Aging_Pairs$players <- NULL
+
+
+
+###  Age Distributions  ####
+
+Stats_Dump$Decade <- floor(Stats_Dump$year_id/10)*10
+Age_Dist <- group_by(Stats_Dump, age, Decade)
+Aging_Dist <- summarise(Age_Dist,
+                        players = length(player),
+                        mp = sum(mp)
+)
+
+library(ggplot2)
+Aging_Dist$Decade <- as.factor(Aging_Dist$Decade)
+ggplot(Aging_Dist,aes(age,mp,color=Decade)) + geom_line()
+
 
 
 
@@ -372,14 +392,11 @@ names(Era_Data_2)[names(Era_Data_2) == "lg_id"] <-
   "prior_lg"
 
 Era_Pairs <- merge(Era_Data,Era_Data_2, by.x=c("player","player_id","prior_year"), by.y = c("player","player_id","year_id"))
-Era_Pairs <- Era_Pairs[Era_Pairs$age>23.5 & Era_Pairs$age<31.5,]
+Era_Pairs <- Era_Pairs[Era_Pairs$age>23.5 & Era_Pairs$age<30.5,]
 Era_Pairs <- merge(Era_Pairs,Aging[,c("age","Fit_Delta_Equiv_BPM")],by = c("age"))
 Era_Pairs$Hist_Delta <- Era_Pairs$equiv_bpm - (Era_Pairs$prior_equiv_bpm + Era_Pairs$Fit_Delta_Equiv_BPM)
 Era_Pairs$avg_mp <- 2*(Era_Pairs$mp * Era_Pairs$prior_mp)/(Era_Pairs$mp + Era_Pairs$prior_mp)
 
-plot(Era_Pairs[Era$lg_id == "NBA" & Era$prior_lg == "NBA",]$year_id,
-     Era_Pairs[Era$lg_id == "NBA" & Era$prior_lg == "NBA",]$Hist_Delta,
-     pch=19,cex = Aging_MPG_Pairs$avg_g/50,col=rgb(red=0, green=0, blue=0, alpha=0.05))
 
 Era_Sequence <- group_by(Era_Pairs, year_id,prior_year, lg_id,prior_lg)
 
@@ -409,6 +426,10 @@ plot(Era_ABA$prior_year,Era_ABA$Era_Adjust)
 
 Era <- rbind(Era_NBA,Era_ABA)
 
+plot(Era_Pairs[Era$lg_id == "NBA" & Era$prior_lg == "NBA",]$year_id,
+     Era_Pairs[Era$lg_id == "NBA" & Era$prior_lg == "NBA",]$Hist_Delta,
+     pch=19,cex = Aging_Pairs$avg_g/50,col=rgb(red=0, green=0, blue=0, alpha=0.05))
+
 plot(x= NULL, y = NULL,
      xlim=c(1950,2015),ylim=c(-4,2),
      xlab="Year", ylab="Era Adjustment, Equiv. BPM", 
@@ -422,6 +443,9 @@ abline(h=0,col = "black")
 
 library(ggplot2)
 library(scales)
+
+Era_NBA$Era_Adjust <- Era_NBA$Era_Adjust - Era_NBA$Era_Adjust[Era_NBA$year_id == 2016]
+Era_ABA$Era_Adjust <- Era_ABA$Era_Adjust - Era_NBA$Era_Adjust[Era_NBA$year_id == 2016]
 
 ggplot() + 
   ggtitle("Era Adjustments, NBA and ABA, vs. 2016") +
@@ -453,134 +477,134 @@ ggplot() +
 # ggsave(filename="~/ETC/Sports/NBA/Hall_Rating/Era_Adjustment_GGPlot.png",width=4,height=3,dpi=300,units="in")
 
 
-
-
-### Era MPG Sum Adjustments ####
-library (magrittr)
-
-Era_MPG_Data <- Stats_Dump[,c("player","player_id","age","year_id","G",
-                              "team_id","lg_id","g","mp","mpg","Playoffs","Injury")] %>%
-  .[.$Playoffs == FALSE,] %>%
-  .[.$Injury == FALSE,] %>%
-  .[.$age > 24,] %>%
-  .[.$age< 31,]
-
-Era_MPG_Group <- group_by(Era_MPG_Data, player, player_id,lg_id,year_id,age,G)
-Era_MPG_Data <- summarise(Era_MPG_Group,
-                      mpg = sum(mp)/sum(g),
-                      mp = sum(mp),
-                      g = sum(g),
-                      ReMPG = sum(mp)/(sum(g) + 4))
-
-Era_MPG_Data <- Era_MPG_Data[Era_MPG_Data$g > 5, ]
-
-Era_MPG_Data_2 <- Era_MPG_Data
-
-Era_MPG_Data$prior_year <- Era_MPG_Data$year_id - 1
-
-names(Era_MPG_Data_2)[names(Era_MPG_Data_2) == "mpg"] <-
-  "prior_mpg"
-names(Era_MPG_Data_2)[names(Era_MPG_Data_2) == "ReMPG"] <-
-  "prior_ReMPG"
-names(Era_MPG_Data_2)[names(Era_MPG_Data_2) == "mp"] <-
-  "prior_mp"
-names(Era_MPG_Data_2)[names(Era_MPG_Data_2) == "age"] <-
-  "prior_age"
-names(Era_MPG_Data_2)[names(Era_MPG_Data_2) == "g"] <-
-  "prior_g"
-names(Era_MPG_Data_2)[names(Era_MPG_Data_2) == "G"] <-
-  "prior_G"
-names(Era_MPG_Data_2)[names(Era_MPG_Data_2) == "lg_id"] <-
-  "prior_lg"
-
-Era_MPG_Pairs <- merge(Era_MPG_Data,Era_MPG_Data_2, 
-                       by.x = c("player","player_id","prior_year"), 
-                       by.y = c("player","player_id","year_id"))
-
-Era_MPG_Pairs$avg_g <- 2*(Era_MPG_Pairs$g * Era_MPG_Pairs$prior_g)/(Era_MPG_Pairs$g + Era_MPG_Pairs$prior_g)
-
-Era_MPG_Sequence <- group_by(Era_MPG_Pairs, year_id,prior_year, lg_id,prior_lg)
-
-Era_MPG <- summarise(Era_MPG_Sequence,
-                 Delta_ReMPG= sum(ReMPG)/sum(prior_ReMPG),
-                 Delta_mpg= sum(mpg)/sum(prior_mpg),
-                 Delta_min= (sum(mp)/mean(G))/(sum(prior_mp)/mean(prior_G)),
-                 count = length(player),
-                 g = sum(avg_g)
-)
-
-Era_MPG <- Era_MPG[Era_MPG$count>15,]
-
-Era_MPG_NBA <- Era_MPG[Era_MPG$lg_id == "NBA" & Era_MPG$prior_lg == "NBA",]
-Era_MPG_ABA <- Era_MPG[!(Era_MPG$lg_id == "NBA" & Era_MPG$prior_lg == "NBA"),]
-
-Era_MPG_NBA <-
-  Era_MPG_NBA[order(-Era_MPG_NBA$year_id),]
-
-Era_MPG_NBA <- Era_MPG_NBA[Era_MPG_NBA$year_id<2016,]
-
-Era_MPG_NBA$Era_ReMPG_Adjust <- cumprod(Era_MPG_NBA$Delta_ReMPG)
-Era_MPG_NBA$Era_mpg_Adjust <- cumprod(Era_MPG_NBA$Delta_mpg)
-Era_MPG_NBA$Era_min_Adjust <- cumprod(Era_MPG_NBA$Delta_min)
-plot(Era_MPG_NBA$prior_year,Era_MPG_NBA$Era_ReMPG_Adjust)
-plot(Era_MPG_NBA$prior_year,Era_MPG_NBA$Era_mpg_Adjust)
-
-Era_MPG_ABA <-
-  Era_MPG_ABA[order(-Era_MPG_ABA$year_id),]
-
-Era_MPG_ABA$Era_ReMPG_Adjust <- cumprod(Era_MPG_ABA$Delta_ReMPG) * Era_MPG_NBA$Era_ReMPG_Adjust[Era_MPG_NBA$prior_year == 1977]
-Era_MPG_ABA$Era_mpg_Adjust <- cumprod(Era_MPG_ABA$Delta_mpg) * Era_MPG_NBA$Era_mpg_Adjust[Era_MPG_NBA$prior_year == 1977]
-Era_MPG_ABA$Era_min_Adjust <- cumprod(Era_MPG_ABA$Delta_min) * Era_MPG_NBA$Era_min_Adjust[Era_MPG_NBA$prior_year == 1977]
-plot(Era_MPG_ABA$prior_year,Era_MPG_ABA$Era_ReMPG_Adjust)
-
-Era_MPG <- rbind(Era_MPG_NBA,Era_MPG_ABA)
-
-plot(x= NULL, y = NULL,
-     xlim=c(1950,2015),ylim=c(0.4,1.2),
-     xlab="Year", ylab="Era_MPG Adjustment, Equiv. BPM", 
-     main="Era_MPG Adjustments, NBA and ABA, vs. 2016"
-)
-mtext("Leaguewide improvements that apply to all players equally are not captured", cex=0.75, padj = -1)
-lines(Era_MPG_NBA$prior_year,Era_MPG_NBA$Era_ReMPG_Adjust, type= "l",lwd = 2, col="red")
-lines(Era_MPG_ABA$prior_year,Era_MPG_ABA$Era_ReMPG_Adjust, lwd = 2, col="blue")
-grid(nx = NULL, ny = NULL, col = "darkgray")
-abline(h=0,col = "black")
-
-library(ggplot2)
-library(scales)
-
-ggplot() + 
-  ggtitle("Era_MPG Adjustments, NBA and ABA, vs. 2016") +
-  xlab("Year") + ylab("Era_MPG Adjustment, Equiv. BPM") +
-  
-  geom_line(data=Era_MPG_NBA,aes(x=prior_year,y=Era_min_Adjust, color="NBA",size=g)) +
-  geom_line(data=Era_MPG_ABA,aes(x=prior_year,y=Era_min_Adjust, color="ABA",size=g)) +
-  geom_hline(aes(yintercept=0))+
-  annotate("text",x=1950,y=-4,label="Note: Leaguewide improvements that apply to all players equally are not captured",hjust=0,vjust=0)+
-  
-  scale_x_continuous(breaks=seq(1950,2015,by=10),limits=c(1950,2015)) +
-  scale_y_continuous(breaks=seq(0.0,1.4,by=0.1),limits=c(0.0,1.4)) +
-  scale_size(range=c(0.5,3),name="Games for Deltas",labels=comma) +
-  scale_color_discrete(name="League") +
-  
-  guides(color = guide_legend(override.aes = list(size=3)))+
-  
-  theme(
-    plot.title = element_text(size=16,face="bold",vjust=0),
-    axis.title.x = element_text(size=14, vjust=-0.35),
-    axis.title.y = element_text(size=14, vjust=1.35),
-    
-    legend.title = element_text(size=12),
-    legend.position="top",
-    legend.box="horizontal",
-    legend.key=element_rect(fill=NA),
-    panel.grid.minor = element_blank()
-  )
-# ggsave(filename="~/ETC/Sports/NBA/Hall_Rating/Era_MPG_Adjustment_GGPlot.png",width=4,height=3,dpi=300,units="in")
-
-
-
-
+# 
+# 
+# ### Era MPG Sum Adjustments ####
+# library (magrittr)
+# 
+# Era_MPG_Data <- Stats_Dump[,c("player","player_id","age","year_id","G",
+#                               "team_id","lg_id","g","mp","mpg","Playoffs","Injury")] %>%
+#   .[.$Playoffs == FALSE,] %>%
+#   .[.$Injury == FALSE,] %>%
+#   .[.$age > 24,] %>%
+#   .[.$age< 31,]
+# 
+# Era_MPG_Group <- group_by(Era_MPG_Data, player, player_id,lg_id,year_id,age,G)
+# Era_MPG_Data <- summarise(Era_MPG_Group,
+#                       mpg = sum(mp)/sum(g),
+#                       mp = sum(mp),
+#                       g = sum(g),
+#                       ReMPG = sum(mp)/(sum(g) + 4))
+# 
+# Era_MPG_Data <- Era_MPG_Data[Era_MPG_Data$g > 5, ]
+# 
+# Era_MPG_Data_2 <- Era_MPG_Data
+# 
+# Era_MPG_Data$prior_year <- Era_MPG_Data$year_id - 1
+# 
+# names(Era_MPG_Data_2)[names(Era_MPG_Data_2) == "mpg"] <-
+#   "prior_mpg"
+# names(Era_MPG_Data_2)[names(Era_MPG_Data_2) == "ReMPG"] <-
+#   "prior_ReMPG"
+# names(Era_MPG_Data_2)[names(Era_MPG_Data_2) == "mp"] <-
+#   "prior_mp"
+# names(Era_MPG_Data_2)[names(Era_MPG_Data_2) == "age"] <-
+#   "prior_age"
+# names(Era_MPG_Data_2)[names(Era_MPG_Data_2) == "g"] <-
+#   "prior_g"
+# names(Era_MPG_Data_2)[names(Era_MPG_Data_2) == "G"] <-
+#   "prior_G"
+# names(Era_MPG_Data_2)[names(Era_MPG_Data_2) == "lg_id"] <-
+#   "prior_lg"
+# 
+# Era_MPG_Pairs <- merge(Era_MPG_Data,Era_MPG_Data_2, 
+#                        by.x = c("player","player_id","prior_year"), 
+#                        by.y = c("player","player_id","year_id"))
+# 
+# Era_MPG_Pairs$avg_g <- 2*(Era_MPG_Pairs$g * Era_MPG_Pairs$prior_g)/(Era_MPG_Pairs$g + Era_MPG_Pairs$prior_g)
+# 
+# Era_MPG_Sequence <- group_by(Era_MPG_Pairs, year_id,prior_year, lg_id,prior_lg)
+# 
+# Era_MPG <- summarise(Era_MPG_Sequence,
+#                  Delta_ReMPG= sum(ReMPG)/sum(prior_ReMPG),
+#                  Delta_mpg= sum(mpg)/sum(prior_mpg),
+#                  Delta_min= (sum(mp)/mean(G))/(sum(prior_mp)/mean(prior_G)),
+#                  count = length(player),
+#                  g = sum(avg_g)
+# )
+# 
+# Era_MPG <- Era_MPG[Era_MPG$count>15,]
+# 
+# Era_MPG_NBA <- Era_MPG[Era_MPG$lg_id == "NBA" & Era_MPG$prior_lg == "NBA",]
+# Era_MPG_ABA <- Era_MPG[!(Era_MPG$lg_id == "NBA" & Era_MPG$prior_lg == "NBA"),]
+# 
+# Era_MPG_NBA <-
+#   Era_MPG_NBA[order(-Era_MPG_NBA$year_id),]
+# 
+# Era_MPG_NBA <- Era_MPG_NBA[Era_MPG_NBA$year_id<2016,]
+# 
+# Era_MPG_NBA$Era_ReMPG_Adjust <- cumprod(Era_MPG_NBA$Delta_ReMPG)
+# Era_MPG_NBA$Era_mpg_Adjust <- cumprod(Era_MPG_NBA$Delta_mpg)
+# Era_MPG_NBA$Era_min_Adjust <- cumprod(Era_MPG_NBA$Delta_min)
+# plot(Era_MPG_NBA$prior_year,Era_MPG_NBA$Era_ReMPG_Adjust)
+# plot(Era_MPG_NBA$prior_year,Era_MPG_NBA$Era_mpg_Adjust)
+# 
+# Era_MPG_ABA <-
+#   Era_MPG_ABA[order(-Era_MPG_ABA$year_id),]
+# 
+# Era_MPG_ABA$Era_ReMPG_Adjust <- cumprod(Era_MPG_ABA$Delta_ReMPG) * Era_MPG_NBA$Era_ReMPG_Adjust[Era_MPG_NBA$prior_year == 1977]
+# Era_MPG_ABA$Era_mpg_Adjust <- cumprod(Era_MPG_ABA$Delta_mpg) * Era_MPG_NBA$Era_mpg_Adjust[Era_MPG_NBA$prior_year == 1977]
+# Era_MPG_ABA$Era_min_Adjust <- cumprod(Era_MPG_ABA$Delta_min) * Era_MPG_NBA$Era_min_Adjust[Era_MPG_NBA$prior_year == 1977]
+# plot(Era_MPG_ABA$prior_year,Era_MPG_ABA$Era_ReMPG_Adjust)
+# 
+# Era_MPG <- rbind(Era_MPG_NBA,Era_MPG_ABA)
+# 
+# plot(x= NULL, y = NULL,
+#      xlim=c(1950,2015),ylim=c(0.4,1.2),
+#      xlab="Year", ylab="Era_MPG Adjustment, Equiv. BPM", 
+#      main="Era_MPG Adjustments, NBA and ABA, vs. 2016"
+# )
+# mtext("Leaguewide improvements that apply to all players equally are not captured", cex=0.75, padj = -1)
+# lines(Era_MPG_NBA$prior_year,Era_MPG_NBA$Era_ReMPG_Adjust, type= "l",lwd = 2, col="red")
+# lines(Era_MPG_ABA$prior_year,Era_MPG_ABA$Era_ReMPG_Adjust, lwd = 2, col="blue")
+# grid(nx = NULL, ny = NULL, col = "darkgray")
+# abline(h=0,col = "black")
+# 
+# library(ggplot2)
+# library(scales)
+# 
+# ggplot() + 
+#   ggtitle("Era_MPG Adjustments, NBA and ABA, vs. 2016") +
+#   xlab("Year") + ylab("Era_MPG Adjustment, Equiv. BPM") +
+#   
+#   geom_line(data=Era_MPG_NBA,aes(x=prior_year,y=Era_min_Adjust, color="NBA",size=g)) +
+#   geom_line(data=Era_MPG_ABA,aes(x=prior_year,y=Era_min_Adjust, color="ABA",size=g)) +
+#   geom_hline(aes(yintercept=0))+
+#   annotate("text",x=1950,y=-4,label="Note: Leaguewide improvements that apply to all players equally are not captured",hjust=0,vjust=0)+
+#   
+#   scale_x_continuous(breaks=seq(1950,2015,by=10),limits=c(1950,2015)) +
+#   scale_y_continuous(breaks=seq(0.0,1.4,by=0.1),limits=c(0.0,1.4)) +
+#   scale_size(range=c(0.5,3),name="Games for Deltas",labels=comma) +
+#   scale_color_discrete(name="League") +
+#   
+#   guides(color = guide_legend(override.aes = list(size=3)))+
+#   
+#   theme(
+#     plot.title = element_text(size=16,face="bold",vjust=0),
+#     axis.title.x = element_text(size=14, vjust=-0.35),
+#     axis.title.y = element_text(size=14, vjust=1.35),
+#     
+#     legend.title = element_text(size=12),
+#     legend.position="top",
+#     legend.box="horizontal",
+#     legend.key=element_rect(fill=NA),
+#     panel.grid.minor = element_blank()
+#   )
+# # ggsave(filename="~/ETC/Sports/NBA/Hall_Rating/Era_MPG_Adjustment_GGPlot.png",width=4,height=3,dpi=300,units="in")
+# 
+# 
+# 
+# 
 
 
 
