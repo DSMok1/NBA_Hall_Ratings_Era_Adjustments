@@ -477,6 +477,10 @@ ggplot() +
 # ggsave(filename="~/ETC/Sports/NBA/Hall_Rating/Era_Adjustment_GGPlot.png",width=4,height=3,dpi=300,units="in")
 
 
+write.csv(Era_NBA, file = "Output/Era_NBA.csv", row.names = FALSE)
+write.csv(Era_ABA, file = "Output/Era_ABA.csv", row.names = FALSE)
+
+
 # 
 # 
 # ### Era MPG Sum Adjustments ####
